@@ -76,6 +76,13 @@ jobs:
             exit 1
           }
 
+      - name: Show the OIDC claims Docker Hub checks
+        if: inputs.push
+        run: |
+          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://hub.docker.com" | jq -r .value)
+          cut -d. -f2 <<<"$token" | tr '_-' '/+' | base64 -d 2>/dev/null | jq '{sub, aud, environment, ref, repository}' || true
+
       - name: Log in to Docker Hub
         if: inputs.push
         uses: docker/login-action@v4
