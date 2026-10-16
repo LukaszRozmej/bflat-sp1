@@ -7,6 +7,9 @@
  * load the id, ecall, return. Ids and argument counts are taken from
  * sp1/crates/zkvm/entrypoint/src/syscalls (SP1 v6).
  *
+ * SP1 v6 keeps the ids of the secp256k1, secp256r1 and BLS12-381 decompress
+ * and u256x2048_mul syscalls but panics on them, so they have no shims here.
+ *
  * An id SP1 does not recognise is a hard ExecutionError, so this file is the
  * ONLY place a guest may issue an ecall besides pal's halt/console path.
  *
@@ -80,15 +83,12 @@ SP1_SYSCALL_N     zkvm_ed_add,                  0x00010107
 SP1_SYSCALL_1     zkvm_ed_decompress,           0x00000108
 SP1_SYSCALL_N     zkvm_secp256k1_add,           0x0001010a
 SP1_SYSCALL_1     zkvm_secp256k1_double,        0x0000010b
-SP1_SYSCALL_N     zkvm_secp256k1_decompress,    0x0000010c
 SP1_SYSCALL_N     zkvm_secp256r1_add,           0x0001012c
 SP1_SYSCALL_1     zkvm_secp256r1_double,        0x0000012d
-SP1_SYSCALL_N     zkvm_secp256r1_decompress,    0x0000012e
 SP1_SYSCALL_N     zkvm_bn254_add,               0x0001010e
 SP1_SYSCALL_1     zkvm_bn254_double,            0x0000010f
 SP1_SYSCALL_N     zkvm_bls12381_add,            0x0001011e
 SP1_SYSCALL_1     zkvm_bls12381_double,         0x0000011f
-SP1_SYSCALL_N     zkvm_bls12381_decompress,     0x0000011c
 
 /* ---- Field arithmetic (Fp / Fp2) --------------------------------------- */
 SP1_SYSCALL_N     zkvm_bn254_fp_addmod,         0x00010126
@@ -108,7 +108,6 @@ SP1_SYSCALL_N     zkvm_bls12381_fp2_mulmod,     0x00010125
 SP1_SYSCALL_N     zkvm_uint256_mulmod,          0x0001011d  /* x, y          */
 SP1_SYSCALL_N     zkvm_uint256_add_with_carry,  0x00010130  /* a,b,c,d,e     */
 SP1_SYSCALL_N     zkvm_uint256_mul_with_carry,  0x00010131  /* a,b,c,d,e     */
-SP1_SYSCALL_N     zkvm_u256x2048_mul,           0x0001012f  /* a,b,lo,hi     */
 
 /* ---- Guest I/O ---------------------------------------------------------
  * Not precompiles, but the only way a guest reads its input and commits
