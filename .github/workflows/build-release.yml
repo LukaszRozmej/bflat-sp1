@@ -31,7 +31,7 @@ env:
 jobs:
   build-libsp1:
     name: Build libsp1
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -39,7 +39,7 @@ jobs:
       - name: Install the RISC-V toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y binutils-riscv64-linux-gnu gcc-riscv64-linux-gnu
+          sudo apt-get install -y binutils-riscv64-linux-gnu gcc-14-riscv64-linux-gnu
 
       - name: Check the generated secp256k1 tables
         run: python3 src/secp256k1/gen_tables.py --check
