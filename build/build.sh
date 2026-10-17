@@ -35,13 +35,14 @@ SP1_REF="${SP1_REF:-v6.6.0}"
 SP1_REPO="${SP1_REPO:-succinctlabs/sp1}"
 
 AS="${AS:-riscv64-linux-gnu-as}"
-CC="${CC:-riscv64-linux-gnu-gcc}"
+# The compiler version alone moves the cost of a recovery on SP1, so it is pinned.
+CC="${CC:-riscv64-linux-gnu-gcc-14}"
 AR="${AR:-riscv64-linux-gnu-ar}"
 RANLIB="${RANLIB:-riscv64-linux-gnu-ranlib}"
 OBJCOPY="${OBJCOPY:-riscv64-linux-gnu-objcopy}"
 
 for tool in "${AS}" "${CC}" "${AR}" "${RANLIB}" "${OBJCOPY}" ; do
-    command -v "${tool}" >/dev/null 2>&1 || fail "${tool} not found (apt install binutils-riscv64-linux-gnu gcc-riscv64-linux-gnu)"
+    command -v "${tool}" >/dev/null 2>&1 || fail "${tool} not found (apt install binutils-riscv64-linux-gnu gcc-14-riscv64-linux-gnu)"
 done
 
 mkdir -p "${OUTPUT_DIR}" "${TMP_DIR}"
@@ -90,9 +91,11 @@ echo "Assembling sp1_syscalls.S..."
 printf '\x00' | dd of="${OUTPUT_DIR}/sp1_syscalls.o" bs=1 seek=48 count=1 conv=notrunc status=none
 
 # --- 3. secp256k1 recovery ------------------------------------------------
+# SP1 charges per executed instruction, not per byte of code, so optimize for
+# speed alone.
 echo "Compiling secp256k1 ecrecover..."
 "${CC}" -march=rv64im -mabi=lp64 -mcmodel=medany -fno-pic -ffreestanding \
-    -fno-stack-protector -O2 -std=c11 -Wall -Wextra -Werror \
+    -fno-stack-protector -O3 -funroll-loops -std=c11 -Wall -Wextra -Werror \
     -c "${ROOT_DIR}/src/secp256k1/ecrecover.c" \
     -o "${OUTPUT_DIR}/secp256k1_ecrecover.o" || fail "compilation failed"
 
