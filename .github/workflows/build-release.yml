@@ -22,11 +22,11 @@ on:
       sp1_ref:
         description: SP1 release the zkEVM SDK is taken from
         type: string
-        default: v6.6.0
+        default: v6.9.0
 
 env:
   # Also the default for push/PR runs, where inputs are empty.
-  SP1_REF: ${{ inputs.sp1_ref || 'v6.6.0' }}
+  SP1_REF: ${{ inputs.sp1_ref || 'v6.9.0' }}
 
 jobs:
   build-libsp1:
