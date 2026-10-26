@@ -317,6 +317,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.build-nupkg.outputs.version }}
+          # Without it, a new tag lands on the default branch's head, not on the commit built
+          target_commitish: ${{ github.sha }}
           name: Nethermind.Sp1.Runtime ${{ needs.build-nupkg.outputs.version }}
           files: |
             nupkg/*.nupkg
