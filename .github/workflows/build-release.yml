@@ -56,6 +56,19 @@ jobs:
           python3 tests/modexp/test_modexp.py
           python3 tests/bn254/test_g1.py
 
+      - name: Check the pairing model and its generated constants
+        # model.py is the reference the C pairing follows; check it against
+        # py_ecc, then that the constant headers are what it generates.
+        run: |
+          pip3 install --break-system-packages py_ecc==8.0.0
+          python3 tests/pairing/check_model.py
+          python3 src/pairing/gen_constants.py --check
+
+      - name: Test the BN254 pairing and KZG point evaluation on the host
+        run: |
+          python3 tests/pairing/test_bn254_pairing.py
+          python3 tests/kzg/test_kzg.py
+
       - name: Build static library
         run: ./build/build.sh
         env:
@@ -232,9 +245,10 @@ jobs:
           docker run --rm --shm-size=8g -v "$PWD/guests:/n" nethermindeth/sp1-runner:${SP1_REF} \
             /n/secp256k1-guest /n/vectors.bin "$expected"
 
-      - name: Run the modexp and BN254 G1 vectors
+      - name: Run the modexp, BN254 and KZG vectors
         run: |
-          for test in modexp/test_modexp.py bn254/test_g1.py ; do
+          pip3 install --break-system-packages py_ecc==8.0.0
+          for test in modexp/test_modexp.py bn254/test_g1.py pairing/test_bn254_pairing.py kzg/test_kzg.py ; do
             expected=$(python3 tests/$test --sp1-vectors guests/accelerators.bin)
             docker run --rm --shm-size=8g -v "$PWD/guests:/n" nethermindeth/sp1-runner:${SP1_REF} \
               /n/accelerators-guest /n/accelerators.bin "$expected"

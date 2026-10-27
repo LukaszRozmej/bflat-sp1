@@ -30,6 +30,7 @@ typedef struct
 #ifdef SP1_HOST_TEST
 
 void sp1_uint256_mulmod(uint64_t x[4], const mulmod_operand *operand);
+void sp1_syscall(uint64_t id, void *x, const void *y);
 
 #else
 
@@ -41,6 +42,12 @@ static inline void sp1_ecall(uint64_t id, const void *a, const void *b)
     register const void *a0 __asm__("a0") = a;
     register const void *a1 __asm__("a1") = b;
     __asm__ volatile("ecall" : "+r"(t0) : "r"(a0), "r"(a1) : "memory");
+}
+
+/* A precompile taking two pointers whose result overwrites the first: x op= y. */
+static inline void sp1_syscall(uint64_t id, void *x, const void *y)
+{
+    sp1_ecall(id, x, y);
 }
 
 /* x = x * operand->y mod operand->m, for any x and y below 2^256 and m != 0. */

@@ -15,7 +15,10 @@
 #      zkvm_bn254_g1_mul on the UINT256_MUL and BN254 point precompiles (see
 #      src/modexp/modexp.c and src/bn254/g1.c). The SDK's G1 copies are made
 #      local; its modexp is renamed sp1_sdk_zkvm_modexp, the fallback for
-#      moduli above 256 bits.
+#      moduli above 256 bits, and
+#   5. bn254_pairing.o and bls12_381_kzg.o - zkvm_bn254_pairing and
+#      zkvm_kzg_point_eval on the field precompiles (see src/pairing/tower.h),
+#      whose SDK copies are made local.
 #
 # WHY THE SYMBOLS ARE LOCALIZED. Rust emits one codegen unit per crate, so a
 # single member of libzkevm.a defines the accelerators AND `_start`, `exit`,
@@ -78,7 +81,7 @@ tar -xzOf "${SDK_TARBALL}" --wildcards '*/libzkevm.a' > "${OUTPUT_DIR}/libsp1.a"
 #
 # zkvm_secp256k1_ecrecover and the BN254 G1 entry points are localized for a
 # different reason: steps 3 and 4 below supply the guest-facing definitions.
-LOCALIZE="_start exit _exit abort __assert_fail memcpy zkvm_secp256k1_ecrecover zkvm_bn254_g1_add zkvm_bn254_g1_mul"
+LOCALIZE="_start exit _exit abort __assert_fail memcpy zkvm_secp256k1_ecrecover zkvm_bn254_g1_add zkvm_bn254_g1_mul zkvm_bn254_pairing zkvm_kzg_point_eval"
 LOCALIZE_ARGS="--redefine-sym=zkvm_modexp=sp1_sdk_zkvm_modexp"
 for sym in ${LOCALIZE} ; do
     LOCALIZE_ARGS="${LOCALIZE_ARGS} --localize-symbol=${sym}"
@@ -95,7 +98,7 @@ echo "Assembling sp1_syscalls.S..."
 # soft-float crt1.o. The SDK members are already 0x0.
 printf '\x00' | dd of="${OUTPUT_DIR}/sp1_syscalls.o" bs=1 seek=48 count=1 conv=notrunc status=none
 
-# --- 3. secp256k1 recovery, 4. modexp and BN254 G1 -----------------------
+# --- 3. secp256k1 recovery, 4. modexp and BN254 G1, 5. pairings -----------
 # SP1 charges per executed instruction, not per byte of code, so optimize for
 # speed alone.
 compile() {
@@ -107,13 +110,15 @@ compile() {
 compile secp256k1/ecrecover.c secp256k1_ecrecover.o
 compile modexp/modexp.c modexp.o
 compile bn254/g1.c bn254_g1.o
+compile pairing/bn254_pairing.c bn254_pairing.o
+compile pairing/bls12_381_kzg.c bls12_381_kzg.o
 
 "${AR}" r "${OUTPUT_DIR}/libsp1.a" "${OUTPUT_DIR}/sp1_syscalls.o" \
     "${OUTPUT_DIR}/secp256k1_ecrecover.o" "${OUTPUT_DIR}/modexp.o" \
-    "${OUTPUT_DIR}/bn254_g1.o" || fail "ar failed"
+    "${OUTPUT_DIR}/bn254_g1.o" "${OUTPUT_DIR}/bn254_pairing.o" "${OUTPUT_DIR}/bls12_381_kzg.o" || fail "ar failed"
 "${RANLIB}" "${OUTPUT_DIR}/libsp1.a" || fail "ranlib failed"
 
-# --- 5. Manifest -----------------------------------------------------------
+# --- 6. Manifest -----------------------------------------------------------
 cp "${ROOT_DIR}/bflat-manifest.json" "${OUTPUT_DIR}/libsp1.bflat.manifest"
 if command -v jq >/dev/null 2>&1 ; then
     jq --arg ref "${SP1_REF}" '. + {sp1_ref: $ref}' \
