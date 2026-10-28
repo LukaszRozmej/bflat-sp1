@@ -2,9 +2,10 @@
  * SPDX-License-Identifier: MIT
  *
  * Host emulation of the SP1 BN254 and BLS12-381 field and G1 point precompiles behind
- * sp1_syscall(). Stricter than the real ones: operands must be canonical and must not alias, and
- * the incomplete point additions abort on equal x or a point off the curve, so code that only
- * works on the real executor by accident fails here. Include after the source under test. */
+ * sp1_syscall(). Stricter than the real ones: operands must be canonical, may not overlap except
+ * as the same field element (the chips read y before they write x), and the incomplete point
+ * additions abort on equal x or a point off the curve, so code that only works on the real
+ * executor by accident fails here. Include after the source under test. */
 
 #ifndef SP1_FIELD_EMU_H
 #define SP1_FIELD_EMU_H
@@ -152,6 +153,8 @@ static void emu_point(const emu_field *f, uint64_t *p, const uint64_t *q, int db
 {
     int n = f->n;
     uint64_t lam[EMU_MAX], t[EMU_MAX], u[EMU_MAX], x3[EMU_MAX], y3[EMU_MAX];
+    if (p == q)
+        emu_die("aliased operands", id);
     emu_canonical(f, p, 2, id);
     if (!emu_on_curve(f, p))
         emu_die("point off the curve", id);
@@ -197,8 +200,6 @@ void sp1_syscall(uint64_t id, void *xv, const void *yv)
     emu_calls[id & 0x1ff]++;
     if ((uintptr_t)x % 8 || (uintptr_t)y % 8)
         emu_die("unaligned operand", id);
-    if ((const uint64_t *)x == y)
-        emu_die("aliased operands", id);
     switch (id)
     {
     case 0x0001010eULL: emu_point(&EMU_BN254, x, y, 0, id); return;
@@ -224,6 +225,9 @@ void sp1_syscall(uint64_t id, void *xv, const void *yv)
         return;
     }
     int n = f->n;
+    int words = op < 3 ? n : 2 * n;
+    if ((const uint64_t *)x != y && (const uint64_t *)x < y + words && y < (const uint64_t *)x + words)
+        emu_die("overlapping operands", id);
     emu_canonical(f, x, op < 3 ? 1 : 2, id);
     emu_canonical(f, y, op < 3 ? 1 : 2, id);
     if (op == 0) emu_fadd(f, x, x, y);

@@ -5,6 +5,7 @@
 Frobenius, the projective formulas against affine arithmetic, and pairing checks (bilinearity,
 non-degeneracy) on both curves. Needs py_ecc."""
 
+import math
 import random
 import sys
 from pathlib import Path
@@ -59,6 +60,11 @@ def identities():
         if c.name == "bn254":
             l = [-36 * x ** 3 - 30 * x ** 2 - 18 * x - 2, -36 * x ** 3 - 18 * x ** 2 - 12 * x + 1, 6 * x ** 2 + 1, 1]
             assert sum(li * p ** i for i, li in enumerate(l)) == d, "bn254 hard-part decomposition"
+            m = 2 * x * (6 * x * x + 3 * x + 1)
+            l = [12 * x ** 3 + 12 * x ** 2 + 6 * x + 1, 12 * x ** 3 + 6 * x ** 2 + 4 * x, 12 * x ** 3 + 6 * x ** 2 + 6 * x,
+                 12 * x ** 3 + 6 * x ** 2 + 4 * x - 1]
+            assert sum(li * p ** i for i, li in enumerate(l)) == m * d, "bn254 hard part as a multiple"
+            assert math.gcd(m, c.r) == 1, "bn254 hard-part multiple coprime to r"
             assert (p - 6 * x * x) % c.r == 0, "p = 6x^2 mod r"
         else:
             assert (x - 1) ** 2 * (x + p) * (x * x + p * p - 1) + 3 == 3 * d, "bls hard part"

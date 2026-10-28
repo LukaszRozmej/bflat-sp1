@@ -12,8 +12,9 @@
  *   BN_CURVE                     1 for BN254's optimal-ate loop and final exponentiation
  *   XI_ONE_PLUS_U                1 when xi = 1 + u, multiplied by with one addition and one subtraction
  *
- * The field precompiles compute x op= y on canonical operands; operands must not alias, so every
- * helper here copies when its arguments overlap. All values stay canonical (below p). */
+ * The field precompiles compute x op= y on canonical operands. Each reads y, then reads and writes
+ * x one memory clock later, so y may be x itself: a helper copies only when its result is a third
+ * value, or is the second operand of a subtraction. All values stay canonical (below p). */
 
 #ifndef PAIRING_TOWER_H
 #define PAIRING_TOWER_H
@@ -75,19 +76,18 @@ static inline void fp_store(uint8_t *b, const fp *a)
     }
 }
 
-static inline void fp_op(uint64_t id, fp *r, const fp *a, const fp *b)
+static inline void fp_op(uint64_t id, int commutes, fp *r, const fp *a, const fp *b)
 {
     if (r == b && r != a)
     {
+        if (commutes)
+        {
+            sp1_syscall(id, r, a);
+            return;
+        }
         fp t = *a;
         sp1_syscall(id, &t, b);
         *r = t;
-        return;
-    }
-    if (r == b)
-    {
-        fp t = *b;
-        sp1_syscall(id, r, &t);
         return;
     }
     if (r != a)
@@ -97,24 +97,29 @@ static inline void fp_op(uint64_t id, fp *r, const fp *a, const fp *b)
 
 static inline void fp_add(fp *r, const fp *a, const fp *b)
 {
-    fp_op(SYS_FP_ADD, r, a, b);
+    fp_op(SYS_FP_ADD, 1, r, a, b);
 }
 
 static inline void fp_sub(fp *r, const fp *a, const fp *b)
 {
-    fp_op(SYS_FP_SUB, r, a, b);
+    fp_op(SYS_FP_SUB, 0, r, a, b);
 }
 
 static inline void fp_mul(fp *r, const fp *a, const fp *b)
 {
-    fp_op(SYS_FP_MUL, r, a, b);
+    fp_op(SYS_FP_MUL, 1, r, a, b);
 }
 
 static inline void fp_neg(fp *r, const fp *a)
 {
-    fp zero;
-    fp_set_small(&zero, 0);
-    fp_sub(r, &zero, a);
+    fp t;
+    if (r == a)
+    {
+        t = *a;
+        a = &t;
+    }
+    fp_set_small(r, 0);
+    fp_sub(r, r, a);
 }
 
 /* r = a^e, e given as NL limbs. */
@@ -155,19 +160,18 @@ static inline int fp2_eq(const fp2 *a, const fp2 *b)
     return fp_eq(&a->c0, &b->c0) && fp_eq(&a->c1, &b->c1);
 }
 
-static inline void fp2_op(uint64_t id, fp2 *r, const fp2 *a, const fp2 *b)
+static inline void fp2_op(uint64_t id, int commutes, fp2 *r, const fp2 *a, const fp2 *b)
 {
     if (r == b && r != a)
     {
+        if (commutes)
+        {
+            sp1_syscall(id, r, a);
+            return;
+        }
         fp2 t = *a;
         sp1_syscall(id, &t, b);
         *r = t;
-        return;
-    }
-    if (r == b)
-    {
-        fp2 t = *b;
-        sp1_syscall(id, r, &t);
         return;
     }
     if (r != a)
@@ -177,17 +181,17 @@ static inline void fp2_op(uint64_t id, fp2 *r, const fp2 *a, const fp2 *b)
 
 static inline void fp2_add(fp2 *r, const fp2 *a, const fp2 *b)
 {
-    fp2_op(SYS_FP2_ADD, r, a, b);
+    fp2_op(SYS_FP2_ADD, 1, r, a, b);
 }
 
 static inline void fp2_sub(fp2 *r, const fp2 *a, const fp2 *b)
 {
-    fp2_op(SYS_FP2_SUB, r, a, b);
+    fp2_op(SYS_FP2_SUB, 0, r, a, b);
 }
 
 static inline void fp2_mul(fp2 *r, const fp2 *a, const fp2 *b)
 {
-    fp2_op(SYS_FP2_MUL, r, a, b);
+    fp2_op(SYS_FP2_MUL, 1, r, a, b);
 }
 
 static inline void fp2_sqr(fp2 *r, const fp2 *a)
@@ -202,9 +206,14 @@ static inline void fp2_dbl(fp2 *r, const fp2 *a)
 
 static inline void fp2_neg(fp2 *r, const fp2 *a)
 {
-    fp2 zero;
-    fp2_set_small(&zero, 0);
-    fp2_sub(r, &zero, a);
+    fp2 t;
+    if (r == a)
+    {
+        t = *a;
+        a = &t;
+    }
+    fp2_set_small(r, 0);
+    fp2_sub(r, r, a);
 }
 
 static inline void fp2_conj(fp2 *r, const fp2 *a)
@@ -213,23 +222,26 @@ static inline void fp2_conj(fp2 *r, const fp2 *a)
     fp_neg(&r->c1, &a->c1);
 }
 
-/* r = a * s for s in Fp, as one Fp2 product with (s, 0). */
+/* r = a * s for s in Fp: two Fp products cost less than one Fp2 product with (s, 0). */
 static inline void fp2_scale(fp2 *r, const fp2 *a, const fp *s)
 {
-    fp2 t;
-    t.c0 = *s;
-    fp_set_small(&t.c1, 0);
-    fp2_mul(r, a, &t);
+    fp_mul(&r->c0, &a->c0, s);
+    fp_mul(&r->c1, &a->c1, s);
 }
 
 static inline void fp2_mul_xi(fp2 *r, const fp2 *a)
 {
 #if XI_ONE_PLUS_U
     /* (a0 + a1 u)(1 + u) = (a0 - a1) + (a0 + a1) u */
-    fp t;
-    fp_sub(&t, &a->c0, &a->c1);
+    if (r == a)
+    {
+        fp t = a->c1;
+        fp_add(&r->c1, &r->c1, &r->c0);
+        fp_sub(&r->c0, &r->c0, &t);
+        return;
+    }
     fp_add(&r->c1, &a->c0, &a->c1);
-    r->c0 = t;
+    fp_sub(&r->c0, &a->c0, &a->c1);
 #else
     fp2_mul(r, a, &XI);
 #endif
@@ -271,71 +283,75 @@ static inline void fp6_neg(fp6 *r, const fp6 *a)
     fp2_neg(&r->c2, &a->c2);
 }
 
-/* r = a * v = (xi a2, a0, a1). */
-static inline void fp6_mul_v(fp6 *r, const fp6 *a)
-{
-    fp2 t;
-    fp2_mul_xi(&t, &a->c2);
-    r->c2 = a->c1;
-    r->c1 = a->c0;
-    r->c0 = t;
-}
-
-/* Karatsuba: six Fp2 products. r may alias a or b. */
+/* Karatsuba: six Fp2 products, written straight into r, which must not overlap a or b. */
 static void fp6_mul(fp6 *r, const fp6 *a, const fp6 *b)
 {
-    fp2 t0, t1, t2, s, u, c0, c1, c2;
+    fp2 t0, t1, t2, u;
     fp2_mul(&t0, &a->c0, &b->c0);
     fp2_mul(&t1, &a->c1, &b->c1);
     fp2_mul(&t2, &a->c2, &b->c2);
 
-    fp2_add(&s, &a->c1, &a->c2);
+    fp2_add(&r->c0, &a->c1, &a->c2);
     fp2_add(&u, &b->c1, &b->c2);
-    fp2_mul(&c0, &s, &u);
-    fp2_sub(&c0, &c0, &t1);
-    fp2_sub(&c0, &c0, &t2);
-    fp2_mul_xi(&c0, &c0);
-    fp2_add(&c0, &c0, &t0);
+    fp2_mul(&r->c0, &r->c0, &u);
+    fp2_sub(&r->c0, &r->c0, &t1);
+    fp2_sub(&r->c0, &r->c0, &t2);
+    fp2_mul_xi(&r->c0, &r->c0);
+    fp2_add(&r->c0, &r->c0, &t0);
 
-    fp2_add(&s, &a->c0, &a->c1);
-    fp2_add(&u, &b->c0, &b->c1);
-    fp2_mul(&c1, &s, &u);
-    fp2_sub(&c1, &c1, &t0);
-    fp2_sub(&c1, &c1, &t1);
-    fp2_mul_xi(&s, &t2);
-    fp2_add(&c1, &c1, &s);
-
-    fp2_add(&s, &a->c0, &a->c2);
+    fp2_add(&r->c2, &a->c0, &a->c2);
     fp2_add(&u, &b->c0, &b->c2);
-    fp2_mul(&c2, &s, &u);
-    fp2_sub(&c2, &c2, &t0);
-    fp2_sub(&c2, &c2, &t2);
-    fp2_add(&c2, &c2, &t1);
+    fp2_mul(&r->c2, &r->c2, &u);
+    fp2_sub(&r->c2, &r->c2, &t0);
+    fp2_sub(&r->c2, &r->c2, &t2);
+    fp2_add(&r->c2, &r->c2, &t1);
 
-    r->c0 = c0;
-    r->c1 = c1;
-    r->c2 = c2;
+    fp2_add(&r->c1, &a->c0, &a->c1);
+    fp2_add(&u, &b->c0, &b->c1);
+    fp2_mul(&r->c1, &r->c1, &u);
+    fp2_sub(&r->c1, &r->c1, &t0);
+    fp2_sub(&r->c1, &r->c1, &t1);
+    fp2_mul_xi(&t2, &t2);
+    fp2_add(&r->c1, &r->c1, &t2);
 }
 
-/* r = a * (b0, b1, 0). r may alias a. */
+/* r = a + b v = (a0 + xi b2, a1 + b0, a2 + b1). r may be a; b must not overlap r. */
+static inline void fp6_add_mul_v(fp6 *r, const fp6 *a, const fp6 *b)
+{
+    fp2 x;
+    fp2_mul_xi(&x, &b->c2);
+    fp2_add(&r->c0, &a->c0, &x);
+    fp2_add(&r->c1, &a->c1, &b->c0);
+    fp2_add(&r->c2, &a->c2, &b->c1);
+}
+
+/* r = a - b v. r may be a; b must not overlap r. */
+static inline void fp6_sub_mul_v(fp6 *r, const fp6 *a, const fp6 *b)
+{
+    fp2 x;
+    fp2_mul_xi(&x, &b->c2);
+    fp2_sub(&r->c0, &a->c0, &x);
+    fp2_sub(&r->c1, &a->c1, &b->c0);
+    fp2_sub(&r->c2, &a->c2, &b->c1);
+}
+
+/* r = a * (b0, b1, 0). r may alias a; b0 and b1 must not overlap r. */
 static void fp6_mul_by_01(fp6 *r, const fp6 *a, const fp2 *b0, const fp2 *b1)
 {
-    fp2 t0, t1, s, u, c0, c1, c2;
+    fp2 t0, t1, u;
     fp2_mul(&t0, &a->c0, b0);
     fp2_mul(&t1, &a->c1, b1);
-    fp2_mul(&c0, &a->c2, b1);
-    fp2_mul_xi(&c0, &c0);
-    fp2_add(&c0, &c0, &t0);
-    fp2_add(&s, &a->c0, &a->c1);
+    /* a0 and a1 are spent from here on, and a2 after the last product with it. */
+    fp2_add(&r->c1, &a->c0, &a->c1);
+    fp2_mul(&r->c0, &a->c2, b1);
+    fp2_mul_xi(&r->c0, &r->c0);
+    fp2_add(&r->c0, &r->c0, &t0);
+    fp2_mul(&r->c2, &a->c2, b0);
+    fp2_add(&r->c2, &r->c2, &t1);
     fp2_add(&u, b0, b1);
-    fp2_mul(&c1, &s, &u);
-    fp2_sub(&c1, &c1, &t0);
-    fp2_sub(&c1, &c1, &t1);
-    fp2_mul(&c2, &a->c2, b0);
-    fp2_add(&c2, &c2, &t1);
-    r->c0 = c0;
-    r->c1 = c1;
-    r->c2 = c2;
+    fp2_mul(&r->c1, &r->c1, &u);
+    fp2_sub(&r->c1, &r->c1, &t0);
+    fp2_sub(&r->c1, &r->c1, &t1);
 }
 
 #if !TWIST_D
@@ -408,6 +424,7 @@ static int fp12_is_one(const fp12 *a)
            fp2_eq(&a->c1.c0, &zero) && fp2_eq(&a->c1.c1, &zero) && fp2_eq(&a->c1.c2, &zero);
 }
 
+/* r may alias a or b: neither is read once the products start writing r. */
 static void fp12_mul(fp12 *r, const fp12 *a, const fp12 *b)
 {
     fp6 t0, t1, s, u;
@@ -415,25 +432,22 @@ static void fp12_mul(fp12 *r, const fp12 *a, const fp12 *b)
     fp6_mul(&t1, &a->c1, &b->c1);
     fp6_add(&s, &a->c0, &a->c1);
     fp6_add(&u, &b->c0, &b->c1);
-    fp6_mul(&s, &s, &u);
-    fp6_sub(&s, &s, &t0);
-    fp6_sub(&r->c1, &s, &t1);
-    fp6_mul_v(&t1, &t1);
-    fp6_add(&r->c0, &t0, &t1);
+    fp6_mul(&r->c1, &s, &u);
+    fp6_sub(&r->c1, &r->c1, &t0);
+    fp6_sub(&r->c1, &r->c1, &t1);
+    fp6_add_mul_v(&r->c0, &t0, &t1);
 }
 
-/* (a0 + a1 w)^2 = (a0 + a1)(a0 + v a1) - t - v t + 2t w, t = a0 a1. */
+/* (a0 + a1 w)^2 = (a0 + a1)(a0 + v a1) - t - v t + 2t w, t = a0 a1. r may alias a. */
 static void fp12_sqr(fp12 *r, const fp12 *a)
 {
     fp6 t, s, u;
     fp6_mul(&t, &a->c0, &a->c1);
     fp6_add(&s, &a->c0, &a->c1);
-    fp6_mul_v(&u, &a->c1);
-    fp6_add(&u, &u, &a->c0);
-    fp6_mul(&s, &s, &u);
-    fp6_sub(&s, &s, &t);
-    fp6_mul_v(&u, &t);
-    fp6_sub(&r->c0, &s, &u);
+    fp6_add_mul_v(&u, &a->c0, &a->c1);
+    fp6_mul(&r->c0, &s, &u);
+    fp6_sub(&r->c0, &r->c0, &t);
+    fp6_sub_mul_v(&r->c0, &r->c0, &t);
     fp6_add(&r->c1, &t, &t);
 }
 
@@ -450,8 +464,7 @@ static void fp12_inv(fp12 *r, const fp12 *a)
     fp6 t0, t1;
     fp6_mul(&t0, &a->c0, &a->c0);
     fp6_mul(&t1, &a->c1, &a->c1);
-    fp6_mul_v(&t1, &t1);
-    fp6_sub(&t0, &t0, &t1);
+    fp6_sub_mul_v(&t0, &t0, &t1);
     fp6_inv(&t0, &t0);
     fp6_mul(&r->c0, &a->c0, &t0);
     fp6_mul(&r->c1, &a->c1, &t0);
@@ -478,82 +491,57 @@ static void fp12_frob(fp12 *r, const fp12 *a, int n)
     }
 }
 
-/* (x + y t)^2 = (x^2 + xi y^2) + 2xy t over Fp4 = Fp2[t]/(t^2 - xi). */
+/* (x + y t)^2 = (x^2 + xi y^2) + 2xy t over Fp4 = Fp2[t]/(t^2 - xi). r0 and r1 must not overlap
+ * x or y. */
 static void fp4_sqr(fp2 *r0, fp2 *r1, const fp2 *x, const fp2 *y)
 {
-    fp2 t, s, u;
-    fp2_mul(&t, x, y);
+    fp2 u;
+    fp2_mul(r1, x, y);
     fp2_mul_xi(&u, y);
     fp2_add(&u, &u, x);
-    fp2_add(&s, x, y);
-    fp2_mul(&s, &s, &u);
-    fp2_sub(&s, &s, &t);
-    fp2_mul_xi(&u, &t);
-    fp2_sub(r0, &s, &u);
-    fp2_dbl(r1, &t);
+    fp2_add(r0, x, y);
+    fp2_mul(r0, r0, &u);
+    fp2_sub(r0, r0, r1);
+    fp2_mul_xi(&u, r1);
+    fp2_sub(r0, r0, &u);
+    fp2_dbl(r1, r1);
 }
 
-/* r = 3t - 2z, or 3t + 2z when plus. */
+/* z = 3t + 2z when plus, else 3t - 2z. */
 static void cyclotomic_combine(fp2 *z, const fp2 *t, int plus)
 {
-    fp2 s;
     if (plus)
-        fp2_add(&s, t, z);
-    else
-        fp2_sub(&s, t, z);
+    {
+        fp2_add(z, z, t);
+        fp2_dbl(z, z);
+        fp2_add(z, z, t);
+        return;
+    }
+    fp2 s;
+    fp2_sub(&s, t, z);
     fp2_dbl(&s, &s);
     fp2_add(z, &s, t);
 }
 
-/* r = a^2 for a in the cyclotomic subgroup (Granger-Scott): three Fp4 squarings. */
+/* r = a^2 for a in the cyclotomic subgroup (Granger-Scott): three Fp4 squarings, combined in
+ * place. */
 static void fp12_cyclotomic_sqr(fp12 *r, const fp12 *a)
 {
-    fp2 z0 = a->c0.c0, z4 = a->c0.c1, z3 = a->c0.c2, z2 = a->c1.c0, z1 = a->c1.c1, z5 = a->c1.c2;
-    fp2 t0, t1, t2, t3, t4, t5, x;
-    fp4_sqr(&t0, &t1, &z0, &z1);
-    fp4_sqr(&t2, &t3, &z2, &z3);
-    fp4_sqr(&t4, &t5, &z4, &z5);
-    cyclotomic_combine(&z0, &t0, 0);
-    cyclotomic_combine(&z1, &t1, 1);
-    fp2_mul_xi(&x, &t5);
-    cyclotomic_combine(&z2, &x, 1);
-    cyclotomic_combine(&z3, &t4, 0);
-    cyclotomic_combine(&z4, &t2, 0);
-    cyclotomic_combine(&z5, &t3, 1);
-    r->c0.c0 = z0;
-    r->c0.c1 = z4;
-    r->c0.c2 = z3;
-    r->c1.c0 = z2;
-    r->c1.c1 = z1;
-    r->c1.c2 = z5;
+    if (r != a)
+        *r = *a;
+    fp2 *z0 = &r->c0.c0, *z4 = &r->c0.c1, *z3 = &r->c0.c2, *z2 = &r->c1.c0, *z1 = &r->c1.c1, *z5 = &r->c1.c2;
+    fp2 t0, t1, t2, t3, t4, t5;
+    fp4_sqr(&t0, &t1, z0, z1);
+    fp4_sqr(&t2, &t3, z2, z3);
+    fp4_sqr(&t4, &t5, z4, z5);
+    cyclotomic_combine(z0, &t0, 0);
+    cyclotomic_combine(z1, &t1, 1);
+    fp2_mul_xi(&t5, &t5);
+    cyclotomic_combine(z2, &t5, 1);
+    cyclotomic_combine(z3, &t4, 0);
+    cyclotomic_combine(z4, &t2, 0);
+    cyclotomic_combine(z5, &t3, 1);
 }
-
-#if BN_CURVE
-/* r = a^e for a small public e, a in the cyclotomic subgroup. */
-static void fp12_pow_u64(fp12 *r, const fp12 *a, uint64_t e)
-{
-    fp12 acc, base = *a;
-    int started = 0;
-    for (int i = 63; i >= 0; i--)
-    {
-        if (started)
-            fp12_cyclotomic_sqr(&acc, &acc);
-        if ((e >> i) & 1)
-        {
-            if (started)
-                fp12_mul(&acc, &acc, &base);
-            else
-            {
-                acc = base;
-                started = 1;
-            }
-        }
-    }
-    if (!started)
-        fp12_set_one(&acc);
-    *r = acc;
-}
-#endif
 
 /* a^x for the curve parameter x, a in the cyclotomic subgroup, over the signed digits of |x|:
  * there a^-1 is a conjugate, so a negative digit costs no more than a positive one. */
@@ -582,7 +570,7 @@ static void fp12_exp_x(fp12 *r, const fp12 *a)
 static void fp12_mul_line(fp12 *f, const fp2 *a, const fp2 *b, const fp2 *c, const fp *xp, const fp *yp)
 {
     fp2 ay, bx, s0, s1;
-    fp6 t0, t1, s;
+    fp6 t0, t1;
     fp2_scale(&ay, a, yp);
     fp2_scale(&bx, b, xp);
 #if TWIST_D
@@ -596,51 +584,50 @@ static void fp12_mul_line(fp12 *f, const fp2 *a, const fp2 *b, const fp2 *c, con
     s0 = *c;
     fp2_add(&s1, &bx, &ay);
 #endif
-    fp6_add(&s, &f->c0, &f->c1);
-    fp6_mul_by_01(&s, &s, &s0, &s1);
-    fp6_sub(&s, &s, &t0);
-    fp6_sub(&f->c1, &s, &t1);
-    fp6_mul_v(&t1, &t1);
-    fp6_add(&f->c0, &t0, &t1);
+    fp6_add(&f->c1, &f->c0, &f->c1);
+    fp6_mul_by_01(&f->c1, &f->c1, &s0, &s1);
+    fp6_sub(&f->c1, &f->c1, &t0);
+    fp6_sub(&f->c1, &f->c1, &t1);
+    fp6_add_mul_v(&f->c0, &t0, &t1);
 }
 
 /* T = 2T and, unless f is NULL, f *= the tangent at T evaluated at P. */
 static void g2_dbl_line(g2_proj *t, fp12 *f, const fp *xp, const fp *yp)
 {
-    fp2 yy, zz, xx, e, a, b, c, s, x3, y3, z3;
+    fp2 yy, e, a, b, c, s;
     fp2_sqr(&yy, &t->y);
-    fp2_sqr(&zz, &t->z);
-    fp2_sqr(&xx, &t->x);
-    fp2_mul(&e, &TWIST_B3, &zz);
+    fp2_sqr(&e, &t->z);
+    fp2_mul(&e, &e, &TWIST_B3);
     fp2_mul(&a, &t->y, &t->z);
     fp2_dbl(&a, &a);
-    fp2_dbl(&b, &xx);
-    fp2_add(&b, &b, &xx);
-    fp2_neg(&b, &b);
+    fp2_sqr(&s, &t->x);
+    fp2_set_small(&b, 0);
+    fp2_sub(&b, &b, &s);
+    fp2_sub(&b, &b, &s);
+    fp2_sub(&b, &b, &s);
     fp2_sub(&c, &yy, &e);
     if (f)
         fp12_mul_line(f, &a, &b, &c, xp, yp);
 
-    fp2 f3, g;
+    /* X3 = XY (Y^2 - 9bZ^2) / 2, Y3 = ((Y^2 + 9bZ^2) / 2)^2 - 27b^2 Z^4, Z3 = 2Y^3 Z, each
+     * computed where it is stored once the old coordinate is spent. */
+    fp2 f3;
     fp2_dbl(&f3, &e);
     fp2_add(&f3, &f3, &e);
-    fp2_mul(&x3, &t->x, &t->y);
+    fp2_mul(&t->z, &t->z, &t->y);
+    fp2_mul(&t->z, &t->z, &yy);
+    fp2_dbl(&t->z, &t->z);
+    fp2_mul(&t->x, &t->x, &t->y);
     fp2_sub(&s, &yy, &f3);
-    fp2_mul(&x3, &x3, &s);
-    fp2_scale(&x3, &x3, &INV2);
-    fp2_add(&g, &yy, &f3);
-    fp2_scale(&g, &g, &INV2);
-    fp2_sqr(&y3, &g);
-    fp2_sqr(&s, &e);
-    fp2_sub(&y3, &y3, &s);
-    fp2_sub(&y3, &y3, &s);
-    fp2_sub(&y3, &y3, &s);
-    fp2_mul(&z3, &yy, &t->y);
-    fp2_mul(&z3, &z3, &t->z);
-    fp2_dbl(&z3, &z3);
-    t->x = x3;
-    t->y = y3;
-    t->z = z3;
+    fp2_mul(&t->x, &t->x, &s);
+    fp2_scale(&t->x, &t->x, &INV2);
+    fp2_add(&f3, &f3, &yy);
+    fp2_scale(&f3, &f3, &INV2);
+    fp2_sqr(&t->y, &f3);
+    fp2_sqr(&e, &e);
+    fp2_sub(&t->y, &t->y, &e);
+    fp2_sub(&t->y, &t->y, &e);
+    fp2_sub(&t->y, &t->y, &e);
 }
 
 /* T = T + Q and, unless f is NULL, f *= the line through T and Q evaluated at P. T != +-Q. */
@@ -658,21 +645,23 @@ static void g2_add_line(g2_proj *t, const g2_affine *q, fp12 *f, const fp *xp, c
     if (f)
         fp12_mul_line(f, &lam, &nt, &c, xp, yp);
 
-    fp2 cc, d, e, ff, g, h;
-    fp2_sqr(&cc, &theta);
+    /* With g = X lam^2 and h = lam^3 + Z theta^2 - 2g: X3 = lam h, Y3 = theta (g - h) - Y lam^3,
+     * Z3 = Z lam^3. g takes X's place and h theta^2's. */
+    fp2 h, d, e;
+    fp2_sqr(&h, &theta);
+    fp2_mul(&h, &h, &t->z);
     fp2_sqr(&d, &lam);
     fp2_mul(&e, &d, &lam);
-    fp2_mul(&ff, &t->z, &cc);
-    fp2_mul(&g, &t->x, &d);
-    fp2_add(&h, &e, &ff);
-    fp2_sub(&h, &h, &g);
-    fp2_sub(&h, &h, &g);
-    fp2_mul(&t->x, &lam, &h);
-    fp2_sub(&s, &g, &h);
-    fp2_mul(&s, &theta, &s);
-    fp2_mul(&d, &t->y, &e);
-    fp2_sub(&t->y, &s, &d);
+    fp2_mul(&t->x, &t->x, &d);
+    fp2_add(&h, &h, &e);
+    fp2_sub(&h, &h, &t->x);
+    fp2_sub(&h, &h, &t->x);
+    fp2_sub(&t->x, &t->x, &h);
+    fp2_mul(&theta, &theta, &t->x);
+    fp2_mul(&t->y, &t->y, &e);
+    fp2_sub(&t->y, &theta, &t->y);
     fp2_mul(&t->z, &t->z, &e);
+    fp2_mul(&t->x, &lam, &h);
 }
 
 #if BN_CURVE
@@ -734,8 +723,8 @@ static void miller_loop(fp12 *f, const fp *xp, const fp *yp, const g2_affine *q,
     fp12_mul(f, f, &m);
 }
 
-/* f^((p^12 - 1)/r) for BN254; f^(3 (p^12 - 1)/r) for BLS12-381, which is 1 exactly when the
- * former is (3 is coprime to r). */
+/* f^(m (p^12 - 1)/r) for BN254, m = 2x(6x^2 + 3x + 1); f^(3 (p^12 - 1)/r) for BLS12-381. Either is
+ * 1 exactly when f^((p^12 - 1)/r) is, as m and 3 are coprime to r. */
 static void final_exp(fp12 *r, const fp12 *f)
 {
     fp12 a, b;
@@ -746,39 +735,34 @@ static void final_exp(fp12 *r, const fp12 *f)
     fp12_frob(&b, &a, 2);
     fp12_mul(&a, &b, &a);
 #if BN_CURVE
-    /* (p^4 - p^2 + 1)/r = l0 + l1 p + l2 p^2 + p^3 with l2 = 6x^2 + 1,
-     * l1 = -36x^3 - 18x^2 - 12x + 1, l0 = -36x^3 - 30x^2 - 18x - 2. */
-    fp12 fx, fx2, fx3, l0, l1, l2, t;
-    fp12_exp_x(&fx, &a);
-    fp12_exp_x(&fx2, &fx);
-    fp12_exp_x(&fx3, &fx2);
+    /* Hard part, as Fuentes-Castaneda, Knapp and Rodriguez-Henriquez: m (p^4 - p^2 + 1)/r =
+     * (12x^3 + 12x^2 + 6x + 1) + (12x^3 + 6x^2 + 4x) p + (12x^3 + 6x^2 + 6x) p^2
+     * + (12x^3 + 6x^2 + 4x - 1) p^3. Three exponentiations by x, three squarings and ten
+     * products, where the plain exponent costs some 25 squarings and 8 products more. */
+    fp12 a2x, a6x, a6x2, k, t;
+    fp12_exp_x(&t, &a);
+    fp12_cyclotomic_sqr(&a2x, &t);
+    fp12_cyclotomic_sqr(&a6x, &a2x);
+    fp12_mul(&a6x, &a6x, &a2x);
+    fp12_exp_x(&a6x2, &a6x);
+    fp12_cyclotomic_sqr(&t, &a6x2);
+    fp12_exp_x(&k, &t);
+    fp12_mul(&k, &k, &a6x2);
+    fp12_mul(&k, &k, &a6x);
 
-    fp12_pow_u64(&l2, &fx2, 6);
-    fp12_mul(&l2, &l2, &a);
-
-    fp12_pow_u64(&l1, &fx3, 36);
-    fp12_pow_u64(&t, &fx2, 18);
-    fp12_mul(&l1, &l1, &t);
-    fp12_pow_u64(&t, &fx, 12);
-    fp12_mul(&l1, &l1, &t);
-    fp12_conj(&l1, &l1);
-    fp12_mul(&l1, &l1, &a);
-
-    fp12_pow_u64(&l0, &fx3, 36);
-    fp12_pow_u64(&t, &fx2, 30);
-    fp12_mul(&l0, &l0, &t);
-    fp12_pow_u64(&t, &fx, 18);
-    fp12_mul(&l0, &l0, &t);
-    fp12_cyclotomic_sqr(&t, &a);
-    fp12_mul(&l0, &l0, &t);
-    fp12_conj(&l0, &l0);
-
-    fp12_frob(&t, &l1, 1);
-    fp12_mul(&l0, &l0, &t);
-    fp12_frob(&t, &l2, 2);
-    fp12_mul(&l0, &l0, &t);
-    fp12_frob(&t, &a, 3);
-    fp12_mul(r, &l0, &t);
+    fp12 l, n;
+    fp12_conj(&t, &a2x);
+    fp12_mul(&l, &k, &t);
+    fp12_mul(&n, &k, &a6x2);
+    fp12_mul(&n, &n, &a);
+    fp12_frob(&t, &l, 1);
+    fp12_mul(&n, &n, &t);
+    fp12_frob(&t, &k, 2);
+    fp12_mul(&n, &n, &t);
+    fp12_conj(&t, &a);
+    fp12_mul(&l, &l, &t);
+    fp12_frob(&t, &l, 3);
+    fp12_mul(r, &n, &t);
 #else
     /* 3 (p^4 - p^2 + 1)/r = (x - 1)^2 (x + p) (x^2 + p^2 - 1) + 3. */
     fp12 t0, t1, t2, s;

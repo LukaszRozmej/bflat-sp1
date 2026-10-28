@@ -197,17 +197,16 @@ class Curve:
             r = self.pow12(a, abs(x))
             return self.conj12(r) if x < 0 else r
         if self.name == "bn254":
-            # (p^4 - p^2 + 1)/r = l0 + l1 p + l2 p^2 + l3 p^3 with
-            # l3 = 1, l2 = 6x^2 + 1, l1 = -36x^3 - 18x^2 - 12x + 1, l0 = -36x^3 - 30x^2 - 18x - 2.
-            fx = expx(f)
-            fx2 = expx(fx)
-            fx3 = expx(fx2)
-            def small(a, k):
-                return self.pow12(a, k)
-            l2 = self.mul12(small(fx2, 6), f)
-            l1 = self.mul12(self.conj12(self.mul12(self.mul12(small(fx3, 36), small(fx2, 18)), small(fx, 12))), f)
-            l0 = self.conj12(self.mul12(self.mul12(self.mul12(small(fx3, 36), small(fx2, 30)), small(fx, 18)), small(f, 2)))
-            return self.mul12(self.mul12(l0, self.frob12(l1, 1)), self.mul12(self.frob12(l2, 2), self.frob12(f, 3)))
+            # m (p^4 - p^2 + 1)/r with m = 2x(6x^2 + 3x + 1), coprime to r (Fuentes-Castaneda et al.):
+            # (12x^3 + 12x^2 + 6x + 1) + (12x^3 + 6x^2 + 4x) p + (12x^3 + 6x^2 + 6x) p^2 + (12x^3 + 6x^2 + 4x - 1) p^3.
+            a2x = self.mul12(expx(f), expx(f))
+            a6x = self.mul12(self.mul12(a2x, a2x), a2x)
+            a6x2 = expx(a6x)
+            k = self.mul12(self.mul12(expx(self.mul12(a6x2, a6x2)), a6x2), a6x)
+            l = self.mul12(k, self.conj12(a2x))
+            n = self.mul12(self.mul12(k, a6x2), f)
+            n = self.mul12(self.mul12(n, self.frob12(l, 1)), self.frob12(k, 2))
+            return self.mul12(n, self.frob12(self.mul12(l, self.conj12(f)), 3))
         # BLS12: 3(p^4 - p^2 + 1)/r = (x - 1)^2 (x + p) (x^2 + p^2 - 1) + 3.
         t0 = self.mul12(expx(f), self.conj12(f))
         t0 = self.mul12(expx(t0), self.conj12(t0))
