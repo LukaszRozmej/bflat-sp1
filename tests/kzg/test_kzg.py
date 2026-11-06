@@ -165,7 +165,7 @@ def main():
         if result.returncode != 0:
             sys.exit(f"harness failed ({result.returncode}): {result.stderr.strip()}")
         failures, calls = 0, []
-        for ((c, z, y, p), want), line in zip(vectors, result.stdout.splitlines()):
+        for ((c, z, y, p), want), line in zip(vectors, result.stdout.splitlines(), strict=True):
             f = line.split()
             got = int(f[1]) if f[0] == "ok" else None
             if got != want:

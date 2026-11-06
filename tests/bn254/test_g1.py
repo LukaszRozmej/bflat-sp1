@@ -171,7 +171,7 @@ def main():
                     for op, a, b in cases]
         failures, mul_ops = 0, []
         first_random = len(cases) - 2 * args.random
-        for index, ((op, a, b), line) in enumerate(zip(cases, run(exe, commands))):
+        for index, ((op, a, b), line) in enumerate(zip(cases, run(exe, commands), strict=True)):
             fields = line.split()
             got = None if fields[0] == "fail" else bytes.fromhex(fields[1])
             want = reference(op, a, b)
@@ -183,7 +183,7 @@ def main():
                 mul_ops.append((int(fields[-2]), int(fields[-1])))
 
         k_values = [rng.randrange(R) for _ in range(5000)] + [0, 1, R - 1, LAMBDA, R - LAMBDA, R // 2, R // 2 + 1]
-        for k, line in zip(k_values, run(exe, [f"split {b32(k).hex()}\n" for k in k_values])):
+        for k, line in zip(k_values, run(exe, [f"split {b32(k).hex()}\n" for k in k_values]), strict=True):
             k1, neg1, k2, neg2 = line.split()
             k1 = -int(k1, 16) if neg1 == "1" else int(k1, 16)
             k2 = -int(k2, 16) if neg2 == "1" else int(k2, 16)
