@@ -113,8 +113,14 @@ def bls12_381():
     extra += fp("SQRT_EXPONENT", (c.p + 1) // 4, n, "(p + 1) / 4: p = 3 mod 4.")
     extra += fp("HALF_P", (c.p - 1) // 2, n, "y is the larger root when y > (p - 1) / 2.")
     extra += fp("BETA", c.beta, n, "(x, y) -> (BETA x, y) is [-x^2] on G1.")
-    extra += fp("G1_X", c.G1[0], n)
-    extra += fp("G1_Y", c.G1[1], n)
+    window = 5
+    extra += [f"#define G1_WINDOW {window}",
+              "/* (2i + 1) G1 for the fixed-base wNAF multiplication. */",
+              "static const g1_affine G1_TABLE[1 << (G1_WINDOW - 2)] = {"]
+    for i in range(1 << (window - 2)):
+        x, y = c.g1_mul(2 * i + 1, c.G1)
+        extra.append(f"    {{{{{limbs(x, n)}}}, {{{limbs(y, n)}}}}},")
+    extra.append("};")
     extra += fp2c("G2_X", BLS_G2[0], n)
     extra += fp2c("G2_Y", BLS_G2[1], n)
     extra += fp2c("S_G2_X", S_G2[0], n, "[s]G2 from the KZG trusted setup.")
