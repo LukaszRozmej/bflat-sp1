@@ -122,7 +122,7 @@ def main():
         if result.returncode != 0:
             sys.exit(f"harness failed ({result.returncode}): {result.stderr.strip()}")
         failures, fast, inversion = 0, 0, None
-        for (b, e, m), line in zip(cases, result.stdout.splitlines()):
+        for (b, e, m), line in zip(cases, result.stdout.splitlines(), strict=True):
             fields = line.split()
             if fields[0] != "ok":
                 failures += 1

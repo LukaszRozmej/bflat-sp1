@@ -68,6 +68,7 @@ jobs:
         run: |
           python3 tests/pairing/test_bn254_pairing.py
           python3 tests/kzg/test_kzg.py
+          python3 tests/common/test_differential_outputs.py
 
       - name: Build static library
         run: ./build/build.sh
@@ -196,7 +197,7 @@ jobs:
 
       - name: Build the modexp and BN254 G1 guest
         run: |
-          bflat-riscv64/src/bflat/bin/Debug/net10.0/bflat build \
+          bflat-riscv64/src/bflat/bin/Debug/net11.0/bflat build \
             bflat-sp1/tests/accelerators/guest.cs \
             --os linux --arch riscv64 --libc sp1 --stdlib dotnet \
             --no-pie --no-pthread -Ot --no-stacktrace-data --ldflags=--strip-all \
