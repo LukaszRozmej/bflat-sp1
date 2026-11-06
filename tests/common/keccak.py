@@ -7,7 +7,10 @@ def keccak256(data):
     """Keccak-256 (the pre-NIST padding Ethereum uses), for the known-vector addresses."""
     rate = 136
     state = [0] * 25
-    data = bytearray(data) + b"\x01" + b"\x00" * ((-len(data) - 2) % rate) + b"\x80"
+    padding = bytearray(rate - len(data) % rate)
+    padding[0] = 0x01
+    padding[-1] |= 0x80
+    data = bytearray(data) + padding
     if len(data) % rate:
         raise AssertionError
     rotations = [0, 1, 62, 28, 27, 36, 44, 6, 55, 20, 3, 10, 43, 25, 39, 41, 45, 15, 21, 8, 18, 2, 61, 56, 14]
