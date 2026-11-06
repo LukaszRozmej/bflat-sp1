@@ -69,6 +69,7 @@ jobs:
           python3 tests/pairing/test_bn254_pairing.py
           python3 tests/kzg/test_kzg.py
           python3 tests/common/test_differential_outputs.py
+          python3 tests/common/test_field_emu.py
 
       - name: Build static library
         run: ./build/build.sh

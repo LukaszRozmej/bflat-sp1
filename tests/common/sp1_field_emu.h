@@ -226,7 +226,9 @@ void sp1_syscall(uint64_t id, void *xv, const void *yv)
     }
     int n = f->n;
     int words = op < 3 ? n : 2 * n;
-    if ((const uint64_t *)x != y && (const uint64_t *)x < y + words && y < (const uint64_t *)x + words)
+    uintptr_t xa = (uintptr_t)x, ya = (uintptr_t)y;
+    size_t bytes = (size_t)words * sizeof(uint64_t);
+    if (xa != ya && (xa < ya ? ya - xa < bytes : xa - ya < bytes))
         emu_die("overlapping operands", id);
     emu_canonical(f, x, op < 3 ? 1 : 2, id);
     emu_canonical(f, y, op < 3 ? 1 : 2, id);
