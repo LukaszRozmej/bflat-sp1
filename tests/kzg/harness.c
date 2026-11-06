@@ -12,6 +12,13 @@
 
 int main(void)
 {
+    g1_affine expected[TABLE_ENTRIES];
+    odd_multiples(expected, &G1_TABLE[0]);
+    if (memcmp(expected, G1_TABLE, sizeof expected) != 0)
+    {
+        fprintf(stderr, "incorrect fixed G1 table\n");
+        return 1;
+    }
     char line[1024], hc[128], hz[128], hy[128], hp[128];
     while (fgets(line, sizeof line, stdin))
     {

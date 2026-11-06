@@ -34,6 +34,12 @@
 #define XI_ONE_PLUS_U 1
 
 #include "fields.h"
+
+typedef struct
+{
+    fp x, y;
+} g1_affine;
+
 #include "bls12_381_constants.h"
 #include "tower.h"
 
@@ -43,14 +49,9 @@
 #define ZKVM_EOK 0
 #define ZKVM_EFAIL (-1)
 
-#define WINDOW 5
+#define WINDOW G1_WINDOW
 #define TABLE_ENTRIES (1 << (WINDOW - 2))
 #define MAX_DIGITS 257
-
-typedef struct
-{
-    fp x, y;
-} g1_affine;
 
 /* p += q for distinct p, q with distinct x; p = 2p for p other than infinity (no point of
  * BLS12-381's E(Fp) has order 2, the group order being odd). */
@@ -163,7 +164,8 @@ static int load_scalar(uint64_t s[5], const uint8_t *b)
     return less_than(s, ORDER_R);
 }
 
-static void odd_multiples(g1_affine table[TABLE_ENTRIES], const g1_affine *p)
+/* Keep the unrolled variable-base table builder out of the verification body to limit code size. */
+static __attribute__((noinline)) void odd_multiples(g1_affine table[TABLE_ENTRIES], const g1_affine *p)
 {
     /* jP = +-2P would need (j -+ 2)P = 0, and P has prime order r. */
     g1_affine twice = *p;
@@ -203,9 +205,7 @@ int zkvm_kzg_point_eval(const uint8_t *commitment, const uint8_t *z, const uint8
         return ZKVM_EOK;
 
     /* A = C - [y]G1 + [z]proof, one shared doubling chain over both scalars. */
-    g1_affine g_table[TABLE_ENTRIES], pi_table[TABLE_ENTRIES];
-    g1_affine g1 = {G1_X, G1_Y};
-    odd_multiples(g_table, &g1);
+    g1_affine pi_table[TABLE_ENTRIES];
     if (has_pi)
         odd_multiples(pi_table, &pi);
     int length = bit_length(ys);
@@ -220,14 +220,14 @@ int zkvm_kzg_point_eval(const uint8_t *commitment, const uint8_t *z, const uint8
     if (has_pi)
         wnaf(digits + 1, 2, zs, WINDOW, length);
 
-    g1_affine a = g1;
+    g1_affine a = G1_TABLE[0];
     int a_inf = 1;
     for (int i = length - 1; i >= 0; i--)
     {
         if (!a_inf)
             g1_double_raw(&a);
         if (digits[2 * i])
-            add_digit(&a, &a_inf, g_table, -digits[2 * i]);
+            add_digit(&a, &a_inf, G1_TABLE, -digits[2 * i]);
         if (digits[2 * i + 1])
             add_digit(&a, &a_inf, pi_table, digits[2 * i + 1]);
     }
