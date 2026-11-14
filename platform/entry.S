@@ -233,13 +233,30 @@ __wrap_memcpy:
     li      t1, 8
     sub     t0, t1, t0
     sub     a2, a2, t0
-.Lhead:
-    lbu     t1, 0(a1)
-    sb      t1, 0(t6)
-    addi    a1, a1, 1
-    addi    t6, t6, 1
-    addi    t0, t0, -1
-    bnez    t0, .Lhead
+    /* The 1-7 head bytes, in ascending order (memmove sends overlapping
+     * copies with dst < src here): step both pointers past them, then jump
+     * into the unrolled run so that it copies the last t0 of its bytes. */
+    add     a1, a1, t0
+    add     t6, t6, t0
+    lla     t1, .Lhead_end
+    slli    t2, t0, 3
+    sub     t1, t1, t2
+    jr      t1
+    lbu     t1, -7(a1)
+    sb      t1, -7(t6)
+    lbu     t1, -6(a1)
+    sb      t1, -6(t6)
+    lbu     t1, -5(a1)
+    sb      t1, -5(t6)
+    lbu     t1, -4(a1)
+    sb      t1, -4(t6)
+    lbu     t1, -3(a1)
+    sb      t1, -3(t6)
+    lbu     t1, -2(a1)
+    sb      t1, -2(t6)
+    lbu     t1, -1(a1)
+    sb      t1, -1(t6)
+.Lhead_end:
 
 .Ldst_aligned:
     andi    t0, a1, 7
@@ -413,15 +430,47 @@ __wrap_memcpy:
     sb      t2, 0(t6)
     ret
 
+    /* Fewer than 16 bytes, in ascending order: jump into the unrolled run
+     * so that it copies the last a2 of its bytes, relative to the ends.
+     * Each step is a byte load and store, as nothing about the alignment of
+     * either pointer is known; a2 = 0 lands on the ret. */
 .Lbytes:
-    beqz    a2, .Ldone
-.Lbyte:
-    lbu     t1, 0(a1)
-    sb      t1, 0(t6)
-    addi    a1, a1, 1
-    addi    t6, t6, 1
-    addi    a2, a2, -1
-    bnez    a2, .Lbyte
+    add     a1, a1, a2
+    add     t6, t6, a2
+    lla     t1, .Ldone
+    slli    t2, a2, 3
+    sub     t1, t1, t2
+    jr      t1
+    lbu     t1, -15(a1)
+    sb      t1, -15(t6)
+    lbu     t1, -14(a1)
+    sb      t1, -14(t6)
+    lbu     t1, -13(a1)
+    sb      t1, -13(t6)
+    lbu     t1, -12(a1)
+    sb      t1, -12(t6)
+    lbu     t1, -11(a1)
+    sb      t1, -11(t6)
+    lbu     t1, -10(a1)
+    sb      t1, -10(t6)
+    lbu     t1, -9(a1)
+    sb      t1, -9(t6)
+    lbu     t1, -8(a1)
+    sb      t1, -8(t6)
+    lbu     t1, -7(a1)
+    sb      t1, -7(t6)
+    lbu     t1, -6(a1)
+    sb      t1, -6(t6)
+    lbu     t1, -5(a1)
+    sb      t1, -5(t6)
+    lbu     t1, -4(a1)
+    sb      t1, -4(t6)
+    lbu     t1, -3(a1)
+    sb      t1, -3(t6)
+    lbu     t1, -2(a1)
+    sb      t1, -2(t6)
+    lbu     t1, -1(a1)
+    sb      t1, -1(t6)
 .Ldone:
     ret
     .cfi_endproc
@@ -459,21 +508,61 @@ __wrap_memmove:
     andi    t0, t6, 7
     beqz    t0, .Lmove_dst_aligned
     sub     a2, a2, t0
-.Lmove_head:
-    addi    a1, a1, -1
-    addi    t6, t6, -1
+    /* The 1-7 bytes below the destination's end, in descending order: step
+     * both pointers down past them, then jump into the unrolled run so that
+     * it copies the first t0 of its bytes, highest first. */
+    sub     a1, a1, t0
+    sub     t6, t6, t0
+    lla     t1, .Lmove_head_end
+    slli    t2, t0, 3
+    sub     t1, t1, t2
+    jr      t1
+    lbu     t1, 6(a1)
+    sb      t1, 6(t6)
+    lbu     t1, 5(a1)
+    sb      t1, 5(t6)
+    lbu     t1, 4(a1)
+    sb      t1, 4(t6)
+    lbu     t1, 3(a1)
+    sb      t1, 3(t6)
+    lbu     t1, 2(a1)
+    sb      t1, 2(t6)
+    lbu     t1, 1(a1)
+    sb      t1, 1(t6)
     lbu     t1, 0(a1)
     sb      t1, 0(t6)
-    addi    t0, t0, -1
-    bnez    t0, .Lmove_head
+.Lmove_head_end:
 
 .Lmove_dst_aligned:
     andi    t0, a1, 7
     bnez    t0, .Lmove_src_misaligned
 
+    li      t1, 64
+    bltu    a2, t1, .Lmove_half
+.Lmove_blocks:
+    ld      t2, -8(a1)
+    ld      t3, -16(a1)
+    ld      t4, -24(a1)
+    ld      t5, -32(a1)
+    ld      a4, -40(a1)
+    ld      a5, -48(a1)
+    ld      a6, -56(a1)
+    ld      a7, -64(a1)
+    sd      t2, -8(t6)
+    sd      t3, -16(t6)
+    sd      t4, -24(t6)
+    sd      t5, -32(t6)
+    sd      a4, -40(t6)
+    sd      a5, -48(t6)
+    sd      a6, -56(t6)
+    sd      a7, -64(t6)
+    addi    a1, a1, -64
+    addi    t6, t6, -64
+    addi    a2, a2, -64
+    bgeu    a2, t1, .Lmove_blocks
+.Lmove_half:
     li      t1, 32
     bltu    a2, t1, .Lmove_words
-.Lmove_blocks:
     ld      t2, -8(a1)
     ld      t3, -16(a1)
     ld      t4, -24(a1)
@@ -485,7 +574,6 @@ __wrap_memmove:
     addi    a1, a1, -32
     addi    t6, t6, -32
     addi    a2, a2, -32
-    bgeu    a2, t1, .Lmove_blocks
 .Lmove_words:
     li      t1, 8
     bltu    a2, t1, .Lmove_bytes
@@ -538,15 +626,44 @@ __wrap_memmove:
 .Lmove_merge_done:
     add     a1, a3, t0
 
+    /* The last 0-15 bytes, in descending order, as for the head. */
 .Lmove_bytes:
-    beqz    a2, .Lmove_done
-.Lmove_byte:
-    addi    a1, a1, -1
-    addi    t6, t6, -1
+    sub     a1, a1, a2
+    sub     t6, t6, a2
+    lla     t1, .Lmove_done
+    slli    t2, a2, 3
+    sub     t1, t1, t2
+    jr      t1
+    lbu     t1, 14(a1)
+    sb      t1, 14(t6)
+    lbu     t1, 13(a1)
+    sb      t1, 13(t6)
+    lbu     t1, 12(a1)
+    sb      t1, 12(t6)
+    lbu     t1, 11(a1)
+    sb      t1, 11(t6)
+    lbu     t1, 10(a1)
+    sb      t1, 10(t6)
+    lbu     t1, 9(a1)
+    sb      t1, 9(t6)
+    lbu     t1, 8(a1)
+    sb      t1, 8(t6)
+    lbu     t1, 7(a1)
+    sb      t1, 7(t6)
+    lbu     t1, 6(a1)
+    sb      t1, 6(t6)
+    lbu     t1, 5(a1)
+    sb      t1, 5(t6)
+    lbu     t1, 4(a1)
+    sb      t1, 4(t6)
+    lbu     t1, 3(a1)
+    sb      t1, 3(t6)
+    lbu     t1, 2(a1)
+    sb      t1, 2(t6)
+    lbu     t1, 1(a1)
+    sb      t1, 1(t6)
     lbu     t1, 0(a1)
     sb      t1, 0(t6)
-    addi    a2, a2, -1
-    bnez    a2, .Lmove_byte
 .Lmove_done:
     ret
     .cfi_endproc
@@ -584,11 +701,21 @@ __wrap_memset:
     andi    t0, t0, 7
     beqz    t0, .Lset_aligned
     sub     a2, a2, t0
-.Lset_head:
+    /* The 1-7 head bytes: jump into the unrolled run so that it stores the
+     * first t0 of its bytes. */
+    lla     t1, .Lset_head_end
+    slli    t2, t0, 2
+    sub     t1, t1, t2
+    jr      t1
+    sb      a1, 6(t6)
+    sb      a1, 5(t6)
+    sb      a1, 4(t6)
+    sb      a1, 3(t6)
+    sb      a1, 2(t6)
+    sb      a1, 1(t6)
     sb      a1, 0(t6)
-    addi    t6, t6, 1
-    addi    t0, t0, -1
-    bnez    t0, .Lset_head
+.Lset_head_end:
+    add     t6, t6, t0
 
 .Lset_aligned:
     li      t1, 32
@@ -610,13 +737,29 @@ __wrap_memset:
     addi    a2, a2, -8
     bgeu    a2, t1, .Lset_word
 
+    /* Fewer than 16 bytes, or the 0-7 after the doublewords: jump into the
+     * unrolled run so that it stores the first a2 of its bytes; a2 = 0 lands
+     * on the ret. */
 .Lset_bytes:
-    beqz    a2, .Lset_done
-.Lset_byte:
+    lla     t1, .Lset_done
+    slli    t2, a2, 2
+    sub     t1, t1, t2
+    jr      t1
+    sb      a1, 14(t6)
+    sb      a1, 13(t6)
+    sb      a1, 12(t6)
+    sb      a1, 11(t6)
+    sb      a1, 10(t6)
+    sb      a1, 9(t6)
+    sb      a1, 8(t6)
+    sb      a1, 7(t6)
+    sb      a1, 6(t6)
+    sb      a1, 5(t6)
+    sb      a1, 4(t6)
+    sb      a1, 3(t6)
+    sb      a1, 2(t6)
+    sb      a1, 1(t6)
     sb      a1, 0(t6)
-    addi    t6, t6, 1
-    addi    a2, a2, -1
-    bnez    a2, .Lset_byte
 .Lset_done:
     ret
     .cfi_endproc
