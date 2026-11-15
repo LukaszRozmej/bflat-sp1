@@ -48,6 +48,26 @@
         "note": "Elide the RA spill/reload and frame in leaf methods (dotnet-riscv patches 23 and 31). Sound only on a single-threaded deterministic guest with no GC thread suspension and no return-address hijacking."
       },
       {
+        "value": "JitZkForwardSubCheap=1",
+        "when": {"optimize": true},
+        "note": "dotnet-riscv fixup riscv32/07 (TARGET_RISCV, so in the riscv64 JIT too): a temp the importer spilled for a local plus constants is cloned into its uses in the block."
+      },
+      {
+        "value": "JitZkInlineCloneCheapArgs=1",
+        "when": {"optimize": true},
+        "note": "dotnet-riscv fixup riscv32/07: an inline argument that is a local plus constants is recomputed at each use rather than held in a register."
+      },
+      {
+        "value": "JitZkInitLocallocOnly=1",
+        "when": {"optimize": true},
+        "note": "dotnet-riscv fixup riscv32/07: a method marked to initialize its locals zeroes only its stackalloc. C# writes a local before it reads it."
+      },
+      {
+        "value": "JitZkNewObjInPlace=1",
+        "when": {"optimize": true},
+        "note": "dotnet-riscv fixup riscv32/07: a struct newobj stored straight into an address-taken local is constructed there, not in a zeroed temp copied into it."
+      },
+      {
         "value": "EnableRiscV64Compressed=0",
         "note": "The decoder has no C extension, and a single-threaded guest needs no atomics: the managed .text stays 32-bit and lock-free (dotnet-riscv fixups 24/25). Check with --error-on-compressed / --error-on-atomic."
       },
