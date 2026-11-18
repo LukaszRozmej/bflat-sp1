@@ -104,7 +104,9 @@ static void pow_binary(uint64_t acc[4], const uint64_t base[4], const uint8_t *e
 /* acc = base^e mod m, e big-endian with a non-zero first byte. */
 static void pow_window(uint64_t acc[4], const uint64_t base[4], const uint8_t *e, size_t len, const uint64_t m[4])
 {
-    mulmod_operand table[WINDOW_ENTRIES], state;
+    mulmod_operand table[WINDOW_ENTRIES];
+    /* A zero digit skips multiplication, so its slot can hold the accumulator. */
+    mulmod_operand *state = &table[0];
     copy4(table[1].y, base);
     copy4(table[1].m, m);
     for (int i = 2; i < WINDOW_ENTRIES; i++)
@@ -113,7 +115,7 @@ static void pow_window(uint64_t acc[4], const uint64_t base[4], const uint8_t *e
         sp1_uint256_mulmod(table[i].y, &table[1]);
         copy4(table[i].m, m);
     }
-    copy4(state.m, m);
+    copy4(state->m, m);
 
     int started = 0;
     for (size_t i = 0; i < 2 * len; i++)
@@ -122,17 +124,17 @@ static void pow_window(uint64_t acc[4], const uint64_t base[4], const uint8_t *e
         if (started)
         {
             for (int j = 0; j < WINDOW_BITS; j++)
-                square(&state);
+                square(state);
             if (digit)
-                sp1_uint256_mulmod(state.y, &table[digit]);
+                sp1_uint256_mulmod(state->y, &table[digit]);
         }
         else if (digit)
         {
-            copy4(state.y, table[digit].y);
+            copy4(state->y, table[digit].y);
             started = 1;
         }
     }
-    copy4(acc, state.y);
+    copy4(acc, state->y);
 }
 
 int zkvm_modexp(const uint8_t *base, size_t base_len, const uint8_t *exp, size_t exp_len,
